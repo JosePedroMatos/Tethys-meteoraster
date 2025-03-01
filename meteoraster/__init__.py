@@ -30,7 +30,9 @@ import cartopy.crs as ccrs #conda install -c conda-forge cartopy
 import cartopy.feature as cf
 import cartopy.io.shapereader as shpreader
 from collections.abc import Iterable
-from tethys_raster_file import TethysRasterFile
+#===============================================================================
+# from tethys_raster_file import TethysRasterFile
+#===============================================================================
 
 class MeteoRaster(object):
     '''
@@ -821,36 +823,37 @@ class MeteoRaster(object):
         meteo = MeteoRaster(data=self.data.copy(), latitudes=self.latitudes.copy(), longitudes=self.longitudes.copy(), productionDates=self.productionDates.copy(), leadtimes=self.leadtimes.copy())
         return meteo
 
-    @classmethod
-    def convert_tys(cls, file, units=None):
-        '''
-        Converts a .tys file (used to store Tethys meteorology)
-        '''
-        
-        class DummyClass:
-            pass
-        
-        timeSeries = types.ModuleType('timeSeries')
-        sys.modules['timeSeries'] = timeSeries
-        
-        timeSeries.rasterFile = types.ModuleType('timeSeries.rasterFile')
-        timeSeries.rasterFile.TethysRasterFile = TethysRasterFile
-        sys.modules['timeSeries.rasterFile'] = timeSeries.rasterFile
-        
-        tys = TethysRasterFile(file=file)
-        tys.load()
-        
-        data = np.expand_dims(tys.data, 1)
-        production_datetimes = pd.to_datetime(tys.productionDatetimes)
-        leadtimes = pd.to_timedelta(tys.leadtimes)
-        latitudes = tys.latitudes
-        longitudes = tys.longitudes
-        
-        meteo = cls(data=data, latitudes=latitudes, longitudes=longitudes,
-                    productionDates=production_datetimes, leadtimes=leadtimes, units=units)
-        
-        return meteo
-
+    #===========================================================================
+    # @classmethod
+    # def convert_tys(cls, file, units=None):
+    #     '''
+    #     Converts a .tys file (used to store Tethys meteorology)
+    #     '''
+    #     
+    #     class DummyClass:
+    #         pass
+    #     
+    #     timeSeries = types.ModuleType('timeSeries')
+    #     sys.modules['timeSeries'] = timeSeries
+    #     
+    #     timeSeries.rasterFile = types.ModuleType('timeSeries.rasterFile')
+    #     timeSeries.rasterFile.TethysRasterFile = TethysRasterFile
+    #     sys.modules['timeSeries.rasterFile'] = timeSeries.rasterFile
+    #     
+    #     tys = TethysRasterFile(file=file)
+    #     tys.load()
+    #     
+    #     data = np.expand_dims(tys.data, 1)
+    #     production_datetimes = pd.to_datetime(tys.productionDatetimes)
+    #     leadtimes = pd.to_timedelta(tys.leadtimes)
+    #     latitudes = tys.latitudes
+    #     longitudes = tys.longitudes
+    #     
+    #     meteo = cls(data=data, latitudes=latitudes, longitudes=longitudes,
+    #                 productionDates=production_datetimes, leadtimes=leadtimes, units=units)
+    #     
+    #     return meteo
+    #===========================================================================
     def _getClosestPixels(self, lat, lon):
         '''
         Returns the indexes of the pixel closer to a point 

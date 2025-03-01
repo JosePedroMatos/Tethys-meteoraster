@@ -1,0 +1,39 @@
+#version 1.0 2025.03.01
+#
+#conda env create -f environment.yml
+#
+#
+#conda update -n base conda
+#conda install -n base conda-libmamba-solver
+#conda config --set solver libmamba
+#
+#
+#conda env update -f environment.yml --prune
+#conda remove --name climatechange --all
+#conda env export > "climatechange_real.yml"
+
+
+name: tethys_rasters
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - cdsapi
+  - xarray
+  - cfgrib
+  - gdal
+  - scikit-learn
+  - pandas
+  - matplotlib
+  - numpy
+  - scipy
+  - netcdf4
+  - statsmodels
+  - cartopy
+  - pip
+  - pip:
+    - BeautifulSoup4
+    - seaborn
+    - openpyxl
+    - jupyterlab
+    
