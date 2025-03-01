@@ -25,7 +25,7 @@ dependencies:
   - scikit-learn
   - pandas
   - matplotlib
-  - numpy
+  - numpy<2
   - scipy
   - netcdf4
   - statsmodels
