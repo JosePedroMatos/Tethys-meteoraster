@@ -4,137 +4,16 @@ Created on 10/02/2023
 @author: Jose Pedro Matos
 '''
 
-import sys
-import types
-import matplotlib
-import pickle
-import math
-import copy
-import gc
-import os
-import zipfile
 import warnings
 import numpy as np
 import xarray as xr
-import datetime as dt
 import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
-import xml.etree.ElementTree as et
 from pathlib import Path
-from osgeo import gdal, ogr
-from dateutil import relativedelta
 from collections.abc import Iterable
-import scipy.interpolate as interp
-import cartopy.crs as ccrs #conda install -c conda-forge cartopy
-import cartopy.feature as cf
-import cartopy.io.shapereader as shpreader
-from collections.abc import Iterable
-from tethys_raster_file import TethysRasterFile
-
-def readNMME(variable, date):
-    '''
-    Reads forecast data from all the available NMME data for a certain date (month).
-    '''
-    
-    '''
-    pr - total precipitation
-    tas - temperature
-    
-    Return a dict:
-        data: 5-D numpy array [productionDate, ensembleMember, leadtime, latitude, longitude]
-        production dates: 1-D numpy array
-        leadtimes: 1-D numpy array
-        latitudes: 1-D numpy array
-        longitudes: 1-D numpy array
-    '''
-    
-    variableTranslation = {'t2m': 'tmp2m',
-                           'p3059': 'prate'}
-    
-    
-    path = Path(NMMEpATH) / date.strftime('%Y%m0800')
-    files = [i for i in path.glob(variableTranslation[variable] + '.*.fcst.*.grb')]
-    
-    dataMatrix = None
-    data = {}
-    for f0 in files:
-        product = f0.name.split('.')[2]
-        print('Collecting %s (%s)' % (product, date.strftime('%m-%Y')))
-
-        with xr.open_dataset(str(f0)) as ds:
-            latitudes = ds.latitude.data
-            longitudes = ds.longitude.data
-            productionDates = ds.time.data
-            tmp = ds[variable][:, :, :].data
-            values = np.expand_dims(tmp, [0, 1])
-            leadtimes = ds.step.data
-        print(leadtimes)
-        print(values.shape)
-
-
-        if product in NMMEensemble:
-            productIdx = NMMEensemble.index(product)
-    
-            if isinstance(dataMatrix, type(None)):
-                dataMatrix = np.empty([1, len(NMMEensemble), 12] + list(values.shape[-2:]) ) * np.NaN
-                data['leadtimes'] = leadtimes
-                data['latitudes'] = ds.latitude.data
-                data['longitudes'] = ds.longitude.data
-                data['productionDates'] = np.array([pd.to_datetime(ds.time.data) + pd.DateOffset(days=-7)]).astype('datetime64[ns]')
-
-            else:
-                if data['leadtimes'].size < leadtimes.size:
-                    data['leadtimes'] = leadtimes
-    
-    
-            dataMatrix[:, productIdx, :values.shape[2], :, :] = values
-        
-    dataMatrix = dataMatrix[:, :, :leadtimes.size, :, :]
-    data['data'] = dataMatrix
-    data['leadtimes'] = np.array(data['leadtimes'])[:dataMatrix.shape[2]]
-
-    return data
-
-def readSEAS5(variable, date):
-    '''
-    
-    ''' 
-    
-    with xr.open_dataset(SEAS5pATH[variable] % date.strftime('%Y.%m'), engine='cfgrib', indexpath='') as ds:
-        latitudes = ds.latitude.data
-        longitudes = ds.longitude.data
-        time = ds.time.data
-        step = ds.step.data
-        data = ds[variable][:, :, :, :].data
-        dates = time + step
-
-
-    return (data, dates, time, latitudes, longitudes)
-
-def readIberia01(variable):
-    '''
-    pr - total precipitation
-    tas - temperature
-    
-    Return a dict:
-        data: 5-D numpy array [productionDate, ensembleMember, leadtime, latitude, longitude]
-        production dates: 1-D numpy array
-        leadtimes: 1-D numpy array
-        latitudes: 1-D numpy array
-        longitudes: 1-D numpy array
-    '''
-    
-    data = {}
-    with xr.open_dataset(IBERIA01pATH % variable) as ds:
-        data['latitudes'] = ds.lat.data
-        data['longitudes'] = ds.lon.data
-        data['productionDates'] = ds.time.data
-        tmp = ds[variable][:, :, :].data
-        data['data'] = np.expand_dims(tmp, [1, 2])
-        data['leadtimes'] = np.array([pd.DateOffset(days=0)])
-    
-    return data
+from meteoraster import MeteoRaster
+#===============================================================================
+# from meteoraster.tethys_raster_file import TethysRasterFile
+#===============================================================================
 
 def readERA5_monthly(file, variable, **kwargs):
     '''
@@ -184,7 +63,19 @@ def readERA5Land_monthly(file, variable, **kwargs):
         leadtimes: 1-D numpy array
         latitudes: 1-D numpy array
         longitudes: 1-D numpy array
+
+        https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land-monthly-means?tab=overview
+        
+        t2m: temperature
+        tp: total precipitation
+        ...
     '''
+    
+    if variable=='tp':
+        if 'backend_kwargs' in kwargs.keys():
+            kwargs['backend_kwargs'].update({'filter_by_keys': {'shortName': 'tp', 'stepType': 'avgad'}})
+        else:
+            kwargs['backend_kwargs'] = {'filter_by_keys': {'shortName': 'tp', 'stepType': 'avgad'}}
     
     data = {}
     with xr.open_dataset(file, engine='cfgrib', indexpath='', **kwargs) as ds:
@@ -212,6 +103,8 @@ def readERA5Land_monthly(file, variable, **kwargs):
     elif variable == 'e':
         data['data'] *= 1000
         units = 'mm/month'
+    else:
+        raise(Exception(f'How to handle variable "{variable}" must be defined.'))
     
     tmp = MeteoRaster(data, variable=variable, units=units)
     return tmp
@@ -406,3 +299,81 @@ def read_C3S(file, variable, engine='cfgrib', **kwargs):
     
     tmp = MeteoRaster(data, units=units, variable=variable)
     return(tmp)
+
+def readCORDEX_monthly(file, variable, convention=pd.offsets.MonthBegin(), remove_time=True):
+    '''
+    Reads CORDEX CMIP 5 monthly data.
+    
+    variable:
+        pr - precipitation
+        tas - air temperature near surface
+        
+    convention (pandas offset):
+        pd.offsets.MonthBegin()
+        None - file default
+    '''
+    
+    data = {}
+    with xr.open_dataset(file) as ds:
+        data['latitudes'] = ds.lat.data
+        data['longitudes'] = ds.lon.data
+        data['productionDates'] = ds.time.data
+        data['data'] = ds[variable][:, :, :].data
+    data['leadtimes'] = np.array([pd.DateOffset(days=0)])
+        
+    if not convention is None:
+        data['productionDates'] = [d + convention for d in data['productionDates']]
+    if remove_time:
+        data['productionDates'] = [d.normalize() for d in data['productionDates']]
+
+    if variable=='tas':
+        units = 'C'
+        variable = 'Air temperature near surface'
+    elif variable=='pr':
+        units = 'mm/month'
+        variable = 'Precipitation'
+    else:
+        raise(Exception(f'How to handle variable "{variable}" must be defined.'))
+
+    data['data'] = np.expand_dims(data['data'], [1, 2])
+
+    tmp = MeteoRaster(data, units=units, variable=variable)
+    tmp.trim()
+    
+    return tmp
+
+
+if __name__ == '__main__':
+    
+    import matplotlib.pyplot as plt
+    
+    #===========================================================================
+    # file = Path(r'C:\Users\zepedro\Documents\GitHub\Climate-change\data\ERA5 land') / 'pr_MOROCCO_ERA5Land.grib'
+    # era5 = readERA5Land_monthly(file, 'tp')
+    # data = era5.plot_mean(coastline=True, borders=False, colorbar=True,
+    #                      colorbar_label=f'[{era5.units}]', cmap='viridis', central_longitude=20, central_latitude=30)
+    #===========================================================================
+
+    #===========================================================================
+    # file = Path(r'C:\Users\zepedro\Documents\GitHub\Climate-change\data\ERA5 land') / 'tas_MOROCCO_ERA5Land.grib'
+    # era5 = readERA5Land_monthly(file, 't2m')
+    # data = era5.plot_mean(coastline=True, borders=False, colorbar=True,
+    #                      colorbar_label=f'[{era5.units}]', cmap='magma', central_longitude=20, central_latitude=30)
+    #===========================================================================
+
+    file = Path(r'C:\Users\zepedro\Documents\GitHub\Climate-change\data\CORDEX') / 'tas_AFR-44_ICHEC-EC-EARTH_rcp85_r1i1p1_SMHI-RCA4_v1_mon_200601-201012.nc'
+    era5 = readCORDEX_monthly(file, 'tas')
+    data = era5.plot_mean(coastline=True, borders=False, colorbar=True,
+                         colorbar_label=f'[{era5.units}]', cmap='magma', central_longitude=20, central_latitude=30)
+    
+    for i0, f0 in enumerate(Path(r'C:\Users\zepedro\Documents\GitHub\Climate-change\data\CORDEX').glob('*.nc')):
+        print(f0)
+        if i0==0:
+            era5 = readCORDEX_monthly(f0, 'tas')
+        else:
+            era5.join(readCORDEX_monthly(f0, 'tas'))
+    
+    era5.getDataFromLatLon(30, -5).plot()
+    
+    plt.show(block=True)
+    print('Done!')

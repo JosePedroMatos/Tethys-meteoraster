@@ -123,7 +123,7 @@ class MeteoRaster(object):
         '''
           
         if isinstance(ax, type(None)):
-            ax = self.create_plot(central_longitude, central_latitude)
+            ax = self.create_plot(central_longitude)
         
         if isinstance(xarray, type(None)):
             xarray = self.to_xarray()
