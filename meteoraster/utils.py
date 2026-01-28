@@ -11,9 +11,6 @@ import pandas as pd
 from pathlib import Path
 from collections.abc import Iterable
 from meteoraster import MeteoRaster
-#===============================================================================
-# from meteoraster.tethys_raster_file import TethysRasterFile
-#===============================================================================
 
 def readERA5_monthly(file, variable, **kwargs):
     '''
@@ -360,20 +357,3 @@ if __name__ == '__main__':
     # data = era5.plot_mean(coastline=True, borders=False, colorbar=True,
     #                      colorbar_label=f'[{era5.units}]', cmap='magma', central_longitude=20, central_latitude=30)
     #===========================================================================
-
-    file = Path(r'C:\Users\zepedro\Documents\GitHub\Climate-change\data\CORDEX') / 'tas_AFR-44_ICHEC-EC-EARTH_rcp85_r1i1p1_SMHI-RCA4_v1_mon_200601-201012.nc'
-    era5 = readCORDEX_monthly(file, 'tas')
-    data = era5.plot_mean(coastline=True, borders=False, colorbar=True,
-                         colorbar_label=f'[{era5.units}]', cmap='magma', central_longitude=20, central_latitude=30)
-    
-    for i0, f0 in enumerate(Path(r'C:\Users\zepedro\Documents\GitHub\Climate-change\data\CORDEX').glob('*.nc')):
-        print(f0)
-        if i0==0:
-            era5 = readCORDEX_monthly(f0, 'tas')
-        else:
-            era5.join(readCORDEX_monthly(f0, 'tas'))
-    
-    era5.getDataFromLatLon(30, -5).plot()
-    
-    plt.show(block=True)
-    print('Done!')
