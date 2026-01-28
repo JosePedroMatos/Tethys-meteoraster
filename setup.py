@@ -1,5 +1,5 @@
 '''
-python setup.py bdist_wheel
+python -m build
 '''
 
 from setuptools import setup, find_packages

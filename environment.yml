@@ -36,5 +36,5 @@ dependencies:
     - seaborn
     - openpyxl
     - jupyterlab
-    - wheel
+    - build
     
