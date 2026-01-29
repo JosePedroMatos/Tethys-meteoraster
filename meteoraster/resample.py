@@ -134,7 +134,7 @@ class Resample(object):
         production_calculation_window = int(prod_frequency/calculation_frequency)
         timestep_calculation_window = int(timestep_frequency/calculation_frequency)    
         
-        calculation_range = pd.date_range(start=date_from, end=date_to + prod_frequency, freq=calculation_frequency, closed='left')
+        calculation_range = pd.date_range(start=date_from, end=date_to + prod_frequency, freq=calculation_frequency, inclusive='left')
         resampled_ = data.reindex(calculation_range, axis=0)
         
         if resamplingType=='sum' or resamplingType=='mean':
@@ -243,7 +243,7 @@ class Resample(object):
              
             # Handle rows (production times)
             if production_calculation_window>1:
-                calculation_index = pd.date_range(start=date_from, end=date_to+leadtime_frequency, freq=calculation_frequency, closed='left')
+                calculation_index = pd.date_range(start=date_from, end=date_to+leadtime_frequency, freq=calculation_frequency, inclusive='left')
                  
                 idx_map = idx_map.reindex(calculation_index, axis=0)
                 valid = idx_map.iloc[0, :]*np.NaN

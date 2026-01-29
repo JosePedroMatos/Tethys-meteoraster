@@ -37,12 +37,12 @@ class MeteoRaster(object):
     ENSEMBLEMEMBERpOSITION = 1
     
     def __init__(self, data,
-                 latitudes=None, longitudes=None, productionDates=None, leadtimes=None,
+                 latitudes=None, longitudes=None, production_datetime=None, leadtimes=None,
                  units='unknown', variable='unknown', da_attrs={}, ds_attrs={},
                  verbose=None,
                  ):
         '''
-        data: 5-D numpy array [productionDate, ensembleMember, leadtime, latitude, longitude]
+        data: 5-D numpy array [production_datetime, ensemble_member, leadtime, latitude, longitude]
         production dates: 1-D numpy array
         ensemble members: 1-D numpy array
         leadtimes: 1-D numpy array
@@ -67,7 +67,7 @@ class MeteoRaster(object):
             self.data = data['data']
             self.latitudes = data['latitudes']
             self.longitudes = data['longitudes']
-            self.productionDates = data['productionDates']
+            self.production_datetime = data['production_datetime']
             self.leadtimes = data['leadtimes']
         else:
             self.data = data
@@ -76,8 +76,8 @@ class MeteoRaster(object):
             self.latitudes = latitudes
         if not longitudes is None:
             self.longitudes = longitudes
-        if not productionDates is None:
-            self.productionDates = productionDates
+        if not production_datetime is None:
+            self.production_datetime = production_datetime
         if not leadtimes is None:
             self.leadtimes = leadtimes
 
@@ -113,9 +113,6 @@ class MeteoRaster(object):
                 self.variable = self.da_attrs['variable']
         else:
             self.da_attrs['variable'] = self.variable
-
-    def plotMean(self, *args, **kwargs):
-        self.plot_mean(*args, **kwargs)
     
     def create_plot(self, central_longitude, projection_kwargs={}, figsize=None, projection_fun=ccrs.PlateCarree, crs=ccrs.PlateCarree(), extent=None):
         '''
@@ -135,7 +132,18 @@ class MeteoRaster(object):
         '''
 
         ax.add_geometries(shpreader.Reader(shapefile_path).geometries(), crs=crs, **kwargs)
-                      
+
+    def add_shape(self, ax, path, color='black', facecolor='none', linewidth=1, crs=ccrs.PlateCarree()):
+        '''
+        
+        '''
+        reader = shpreader.Reader(path)
+
+        for record in reader.records():
+            geometry = record.geometry
+            ax.add_geometries([geometry], crs=crs, edgecolor=color, facecolor=facecolor, linewidth=linewidth)
+        plt.show(block=False)
+
     def plot_mean(self, ax=None, xarray=None, block=False, multiplier=1, coastline=False, borders=False, colorbar=True,
                   colorbar_label=None, cmap='viridis', central_longitude=None, central_latitude=None, *args, **kwargs):
         '''
@@ -147,7 +155,7 @@ class MeteoRaster(object):
         
         if isinstance(xarray, type(None)):
             xarray = self.to_xarray()
-            xarray = xarray.mean(dim=['production date', 'ensemble member', 'leadtime'])*multiplier
+            xarray = xarray.mean(dim=['production_datetime', 'ensemble_member', 'leadtime'])*multiplier
             
             
         plot = xarray.plot.pcolormesh(ax=ax, transform=ccrs.PlateCarree(), x="lon", y="lat", add_colorbar=False, cmap=cmap, *args, **kwargs)
@@ -167,18 +175,7 @@ class MeteoRaster(object):
     
         return ax, cbar
     
-    def add_shape(self, ax, path, color='black', facecolor='none', linewidth=1, crs=ccrs.PlateCarree()):
-        '''
-        
-        '''
-        reader = shpreader.Reader(path)
-
-        for record in reader.records():
-            geometry = record.geometry
-            ax.add_geometries([geometry], crs=crs, edgecolor=color, facecolor=facecolor, linewidth=linewidth)
-        plt.show(block=False)
-    
-    def plotMeanProjected(self, ax=None, block=False, multiplier=1, *args, **kwargs):
+    def plot_mean_projected(self, ax=None, block=False, multiplier=1, *args, **kwargs):
         '''
         Plots the mean behavior for the full time series using the true coordinates
         '''
@@ -194,7 +191,7 @@ class MeteoRaster(object):
         plt.colorbar()
         plt.show(block=block)
 
-    def plotCoordinates(self, ax=None, block=False, *args, **kwargs):
+    def plot_coordinates(self, ax=None, block=False, *args, **kwargs):
         '''
         Plots the available coordinates in the lat and lon matrixes
         '''
@@ -205,16 +202,22 @@ class MeteoRaster(object):
         plt.plot(self.longitudes.ravel(), self.latitudes.ravel(), 'k.', *args, **kwargs)
         plt.show(block=block)
 
-    def plotSeasonal(self, lat, lon, window=31, leadtime=None, ax=None, block=False, multiplier=1, *args, **kwargs):
+    def plot_seasonal(self, lat, lon, window=31, leadtime=None, ax=None, block=False, multiplier=1, *args, **kwargs):
         
-        data = self.getDataFromLatLon(lat, lon)
+        data = self.get_values_from_latlon(lat, lon)
         if isinstance(leadtime, type(None)):
             leadtime = self.leadtimes[0]
 
-        data = data.loc[(slice(None), leadtime), :]
-        data.index = data.index.get_level_values(0)
-        
+        # Select specific leadtime columns (level 0 is leadtime)
+        data = data.xs(leadtime, level='leadtime', axis=1)
+
         tmp = data.rolling(window=window, center=True, axis=0).mean().dropna().stack().to_frame(name='values').reset_index()
+        
+        # Use proper column name from index
+        idx_name = data.index.name if data.index.name else 'index'
+        if idx_name in tmp.columns:
+             tmp.rename(columns={idx_name: 'Production dates'}, inplace=True)
+
         tmp.loc[:, 'Day of year'] = tmp.loc[:, 'Production dates'].dt.day_of_year
 
         if isinstance(ax, type(None)):
@@ -223,7 +226,7 @@ class MeteoRaster(object):
         
         return ax
 
-    def getValuesFromKML(self, kml, nameField=None, coverage_info=None, getCoverageInfo=False, elementwise=False):
+    def get_values_from_KML(self, kml, nameField=None, coverage_info=None, getCoverageInfo=False, elementwise=False):
         '''
         Returns a pandas table with averaged values        
         '''
@@ -240,8 +243,8 @@ class MeteoRaster(object):
             return agg, centroids, coverage_info
         else:
             return agg, centroids
-    
-    def getQuantilesFromKML(self, kml, nameField=None, coverage_info=None, getCoverageInfo=False, resampling=None, precision=0.1, quantiles=[0.01, 0.1, 0.5, 0.9, 0.99]):
+
+    def get_quantiles_from_KML(self, kml, nameField=None, coverage_info=None, getCoverageInfo=False, resampling=None, precision=0.1, quantiles=[0.01, 0.1, 0.5, 0.9, 0.99]):
         '''
         Returns a pandas table with averaged values      
         '''
@@ -258,8 +261,8 @@ class MeteoRaster(object):
             return agg, centroids, coverage_info
         else:
             return agg, centroids
-    
-    def getCropped(self, from_prod_date=dt.datetime(1900, 1, 1), to_prod_date=dt.datetime(2199, 12, 31),
+
+    def get_cropped(self, from_prod_date=dt.datetime(1900, 1, 1), to_prod_date=dt.datetime(2199, 12, 31),
                    from_lat=-90, to_lat=90, from_lon=-180, to_lon=180,
                    from_leadtime=None, to_leadtime=None):
         '''
@@ -268,7 +271,7 @@ class MeteoRaster(object):
         
         self._diag('Cropping meteorology...', self.verbose)
         
-        date_idxs = np.arange(self.productionDates.shape[0])[(self.productionDates>=np.datetime64(from_prod_date)) & (self.productionDates<=np.datetime64(to_prod_date))]
+        date_idxs = np.arange(self.production_datetime.shape[0])[(self.production_datetime>=np.datetime64(from_prod_date)) & (self.production_datetime<=np.datetime64(to_prod_date))]
         
         inside = np.zeros_like(self.latitudes).astype(bool)
         inside[(np.round(self.longitudes,6)>=np.round(from_lon,6)) & (np.round(self.longitudes,6)<=np.round(to_lon,6)) & (np.round(self.latitudes,6)>=np.round(from_lat,6)) & (np.round(self.latitudes,6)<=np.round(to_lat,6))] = True
@@ -281,7 +284,7 @@ class MeteoRaster(object):
         # lon_idxs = np.arange(self.longitudes.shape[0])[(self.longitudes>=from_lon) & (self.longitudes<=to_lon)]
         #=======================================================================
         
-        productionDates = self.productionDates[date_idxs]
+        production_datetime = self.production_datetime[date_idxs]
         latitudes = np.round(self.latitudes[lat_idxs, :],6)
         latitudes = np.round(latitudes[:, lon_idxs],6)
         longitudes = np.round(self.longitudes[lat_idxs, :],6)
@@ -291,7 +294,7 @@ class MeteoRaster(object):
         data = data[:, :, :, :, lon_idxs]
         
         cropped = copy.deepcopy(self)
-        cropped.productionDates = productionDates
+        cropped.production_datetime = production_datetime
         cropped.latitudes = latitudes
         cropped.longitudes = longitudes
         
@@ -322,7 +325,7 @@ class MeteoRaster(object):
         end = tmp[-1]+1
         
         self.data = self.data[start:end, :, : ,:, :]
-        self.productionDates = self.productionDates[start:end]
+        self.production_datetime = self.production_datetime[start:end]
     
     def join(self, meteoRaster, strickt=False, trim=False):
         '''
@@ -336,7 +339,7 @@ class MeteoRaster(object):
             meteoRaster.trim()
         
         newData = meteoRaster.data
-        newProductionDates = meteoRaster.productionDates
+        newproduction_datetime = meteoRaster.production_datetime
         newLeadtimes = meteoRaster.leadtimes.astype(self.leadtimes.dtype)
         newLatitudes = meteoRaster.latitudes
         newLongitudes = meteoRaster.longitudes
@@ -393,34 +396,34 @@ class MeteoRaster(object):
         if self.leadtimes.shape != newLeadtimes.shape or not np.array_equal(self.leadtimes, newLeadtimes):
             raise(Exception('Leadtimes do not match. Not implemented'))
 
-        if self.productionDates[-1]<newProductionDates[0]:
+        if self.production_datetime[-1]<newproduction_datetime[0]:
             # self if first
-            self.productionDates = np.concatenate((self.productionDates, newProductionDates))
+            self.production_datetime = np.concatenate((self.production_datetime, newproduction_datetime))
             self.data = np.concatenate((self.data, newData), axis=0)
             
-        elif self.productionDates[0]>newProductionDates[-1]: 
+        elif self.production_datetime[0]>newproduction_datetime[-1]: 
             # joint is first
-            self.productionDates = np.concatenate((newProductionDates, self.productionDates))
+            self.production_datetime = np.concatenate((newproduction_datetime, self.production_datetime))
             self.data = np.concatenate((newData, self.data), axis=0)
         else:
             # mixed/interleaved production dates: align on the union of dates, fill NaN, new data overwrites on overlap
-            all_dates = np.sort(np.unique(np.concatenate((self.productionDates, newProductionDates))))
+            all_dates = np.sort(np.unique(np.concatenate((self.production_datetime, newproduction_datetime))))
             target_shape = (all_dates.size,) + tuple(self.data.shape[1:])
             target_dtype = np.result_type(self.data.dtype, np.float32)
             merged = np.full(target_shape, np.nan, dtype=target_dtype)
 
             # place existing data
-            idx_self = np.searchsorted(all_dates, self.productionDates)
+            idx_self = np.searchsorted(all_dates, self.production_datetime)
             merged[idx_self, ...] = self.data.astype(target_dtype, copy=False)
 
             # place new data (overwrite on overlap)
-            idx_new = np.searchsorted(all_dates, newProductionDates)
+            idx_new = np.searchsorted(all_dates, newproduction_datetime)
             merged[idx_new, ...] = newData.astype(target_dtype, copy=False)
 
-            self.productionDates = all_dates
+            self.production_datetime = all_dates
             self.data = merged
 
-    def adjustLeadtimes(self, period='months'):
+    def adjust_leadtimes(self, period='months'):
         '''
         Adjust leadtimes to relative time steps (useful for monthly)
         '''
@@ -435,8 +438,8 @@ class MeteoRaster(object):
         
         warnings.warn('the function adjustLeadTimes() is experimental.')
     
-        times = self.productionDates[0] + self.leadtimes
-        validTimes = pd.Timestamp(self.productionDates[0]) + periodDefinition[period]
+        times = self.production_datetime[0] + self.leadtimes
+        validTimes = pd.Timestamp(self.production_datetime[0]) + periodDefinition[period]
     
         idxs = self.closestIdx(times, validTimes)
         validPeriods =  periodDefinition[period][:idxs.max()+1]
@@ -466,19 +469,19 @@ class MeteoRaster(object):
     
         self._diag('    Done.', self.verbose)
     
-    def getMissing(self):
+    def get_missing(self):
         '''
         Provides a diagnostic of missing data
         '''
         
         missingFraction = np.isnan(self.data).mean(axis=(-2, -1))
-        missingFraction = pd.DataFrame(missingFraction.reshape((missingFraction.shape[0], np.prod(missingFraction.shape[1:]))), index=self.productionDates)
-        missingFraction.index.name = 'Production dates'
-        missingFraction.columns = pd.MultiIndex.from_product((self.leadtimes, np.arange(self.data.shape[1])), names=['Leadtime', 'Ensemble member'])
+        missingFraction = pd.DataFrame(missingFraction.reshape((missingFraction.shape[0], np.prod(missingFraction.shape[1:]))), index=self.production_datetime)
+        missingFraction.index.name = 'production_datetime'
+        missingFraction.columns = pd.MultiIndex.from_product((self.leadtimes, np.arange(self.data.shape[1])), names=['leadtime', 'ensemble_member'])
         
         return missingFraction.transpose()
 
-    def getDataFromLatLon(self, lat, lon):
+    def get_values_from_latlon(self, lat, lon):
         '''
         Returns a dataframe with data from the pixel closest to the desired point
         '''
@@ -491,74 +494,74 @@ class MeteoRaster(object):
         for iLat, iLon in zip(idxLat, idxLon):
             tmp.append(np.expand_dims(self.data[:, :, :, iLat, iLon], axis=0))
         tmp = np.concatenate(tmp, axis=0)
-        tmp = np.nanmean(tmp, axis=0) # [production dates, ensemble, leadtimes]
+        tmp = np.nanmean(tmp, axis=0) # [production_datetime, ensemble_member, leadtimes]
         
         data = pd.DataFrame(tmp.reshape(tmp.shape[0]*tmp.shape[1], tmp.shape[2]))
-        data.index = pd.MultiIndex.from_product((self.productionDates.ravel(), np.arange(self.data.shape[1])), names=['Production dates', 'Ensemble member'])
+        data.index = pd.MultiIndex.from_product((self.production_datetime.ravel(), np.arange(self.data.shape[1])), names=['production_datetime', 'ensemble_member'])
         data.columns = self.leadtimes
-        data.columns.name = 'Leadtime'
+        data.columns.name = 'leadtime'
 
-        data = data.unstack('Ensemble member')
+        data = data.unstack('ensemble_member')
 
         return data
 
     @staticmethod
-    def dataFromLatLon_eventDate(production_date_dataframe):
+    def get_values_from_latlon_by_event(production_date_dataframe):
         '''
         !!!!! Change the index name to Event dates
         '''
         
-        ensembles = production_date_dataframe.columns.get_level_values('Ensemble member').unique()
+        ensembles = production_date_dataframe.columns.get_level_values('ensemble_member').unique()
         full_data_ = []
         for ensemble in ensembles:
-            tmp = production_date_dataframe.loc[:, production_date_dataframe.columns.get_level_values('Ensemble member')==ensemble]
+            tmp = production_date_dataframe.loc[:, production_date_dataframe.columns.get_level_values('ensemble_member')==ensemble]
             data_ = []
             for i0 in range(tmp.shape[1]):
                 tmp_ = tmp.iloc[:, [i0]]
-                tmp_.index = tmp_.index + tmp_.columns.get_level_values('Leadtime')[0]
+                tmp_.index = tmp_.index + tmp_.columns.get_level_values('leadtime')[0]
                 data_.append(tmp_)
             full_data_.append(pd.concat(data_, axis=1))
         
         return pd.concat(full_data_, axis=1)
 
-    def plotAvailability(self, missing=None, individualMembers=False):
+    def plot_availability(self, missing=None, individualMembers=False):
         '''
         Plots the availability of the data
         '''
         
         if isinstance(missing, type(None)):
-            missing = self.getMissing()
+            missing = self.get_missing()
 
         available = missing < 0.95
         
         if individualMembers:
             tmp = available.stack().to_frame()
         else:
-            virtualLevels = pd.to_datetime(self.productionDates[0]) + self.leadtimes
+            virtualLevels = pd.to_datetime(self.production_datetime[0]) + self.leadtimes
             available.index = available.index.set_levels(virtualLevels, level=0)
             tmp = available.groupby(axis=0, level=0).sum().transpose().stack().to_frame()
             tmp.index = tmp.index.set_levels(self.leadtimes, level=1)
 
         
-        tmp.columns = ['Available']
-        tmp = tmp.loc[tmp['Available']>0,:].reset_index()
-        tmp.loc[:, 'Event dates'] = tmp.loc[:, 'Production dates'] + tmp.loc[:, 'Leadtime']
+        tmp.columns = ['available']
+        tmp = tmp.loc[tmp['available']>0,:].reset_index()
+        tmp.loc[:, 'event_dates'] = tmp.loc[:, 'production_datetime'] + tmp.loc[:, 'leadtime']
         
         sns.set_theme(style="whitegrid")
         if individualMembers:
             g = sns.relplot(
                 data=tmp,
-                x='Event dates', y='Production dates', hue='Ensemble member', 
+                x='event_dates', y='production_datetime', hue='ensemble_member', 
                 palette='plasma',
                 )
         else:
             g = sns.relplot(
                 data=tmp,
-                x='Event dates', y='Production dates', hue='Available', size='Available',
+                x='event_dates', y='production_datetime', hue='available', size='available',
                 palette='viridis',
-                sizes={s: s*10 for s in np.arange(1,max((11, tmp.loc[:, 'Available'].max()+1)))},
+                sizes={s: s*10 for s in np.arange(1,max((11, tmp.loc[:, 'available'].max()+1)))},
                 #===================================================================
-                # size_order=np.arange(1, max((11, tmp.loc[:, 'Available'].max()+1)))
+                # size_order=np.arange(1, max((11, tmp.loc[:, 'available'].max()+1)))
                 #===================================================================
                 )
         g.ax.xaxis.grid(True, "minor", linewidth=.25)
@@ -566,7 +569,7 @@ class MeteoRaster(object):
         
         plt.show(block=False)
 
-    def resampleTimeStep(self, rule, fun=np.mean):
+    def resample_timestep(self, rule, fun=np.mean):
         '''
         Resamples data according to pandas conventions
         https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.resample.html
@@ -574,12 +577,12 @@ class MeteoRaster(object):
         rule='MS' resamples to the start of the month
         '''
         
-        warnings.warn('the function resampleTimeStep() is experimental.')
+        warnings.warn('the function resample_timestep() is experimental.')
 
         self._diag('    Resampling time step (rule: %s, %s)...' % (rule, str(fun)), self.verbose)        
 
         # prepare a template dataframe
-        tmp = pd.DataFrame(np.arange(self.productionDates.shape[0]), index=self.productionDates)
+        tmp = pd.DataFrame(np.arange(self.production_datetime.shape[0]), index=self.production_datetime)
         idxMax = tmp.resample(rule=rule).max().astype(int)+1
         
         resampled = np.empty([idxMax.shape[0]] + list(self.data.shape[1:])) * np.NaN
@@ -589,10 +592,10 @@ class MeteoRaster(object):
             idx0 = i1
     
         self.data = resampled
-        self.productionDates = idxMax.index
+        self.production_datetime = idxMax.index
     
-        self._diag('        Done (%s to %s).' % (self.productionDates[0].strftime('%Y-%m-%d %H:%M:%S', self.verbose),
-                                                          self.productionDates[-1].strftime('%Y-%m-%d %H:%M:%S')))
+        self._diag('        Done (%s to %s).' % (self.production_datetime[0].strftime('%Y-%m-%d %H:%M:%S', self.verbose),
+                                                          self.production_datetime[-1].strftime('%Y-%m-%d %H:%M:%S')))
     
     def is_complete(self, full_ensemble:bool=True, space_completeness:bool=False) -> bool:
         '''
@@ -639,17 +642,17 @@ class MeteoRaster(object):
 
         # Ensemble requirement
         if full_ensemble:
-            finite = finite.all(axis=1)  # -> [prod, leadtime, y, x]
+            finite = finite.all(axis=1)  # -> [production_datetime, leadtime, y, x]
         else:
-            finite = finite.any(axis=1)  # -> [prod, leadtime, y, x]
+            finite = finite.any(axis=1)  # -> [production_datetime, leadtime, y, x]
 
         # Spatial requirement
         if space_completeness:
-            finite = finite.all(axis=(-2, -1))  # -> [prod, leadtime]
+            finite = finite.all(axis=(-2, -1))  # -> [production_datetime, leadtime] or [production_datetime, ensemble_member, leadtime]
         else:
-            finite = finite.any(axis=(-2, -1))  # -> [prod, leadtime]
+            finite = finite.any(axis=(-2, -1))  # -> [production_datetime, leadtime] or [production_datetime, ensemble_member, leadtime]
 
-        completeness_index = pd.DataFrame(finite, index=self.productionDates, columns=self.leadtimes)
+        completeness_index = pd.DataFrame(finite, index=self.production_datetime, columns=self.leadtimes)
         completeness_index.index.name = 'production_datetime'
         completeness_index.columns.name = 'leadtime'
 
@@ -727,12 +730,12 @@ class MeteoRaster(object):
         '''
         
         data_array = xr.DataArray(
-            data=self.data,  # keep 5D shape: [prod, leadtime, ensemble, y, x]
-            dims=['production_datetime', 'leadtime', 'ensemble_idx' , 'y', 'x'],
+            data=self.data,
+            dims=['production_datetime', 'ensemble_member', 'leadtime', 'y', 'x'],
             coords={
-                'production_datetime': self.productionDates,          # pd.Timestamp
+                'production_datetime': self.production_datetime,          # pd.Timestamp
+                'ensemble_member': np.arange(self.data.shape[1], dtype=int),            # int
                 'leadtime': self.leadtimes,                         # pd.Timedelta / DateOffset
-                'ensemble_idx': np.arange(self.data.shape[1], dtype=int),            # int
                 'lat': (['y', 'x'], self.latitudes),                   # float
                 'lon': (['y', 'x'], self.longitudes),                  # float
                 'y': np.arange(self.data.shape[-2], dtype=int),
@@ -777,7 +780,7 @@ class MeteoRaster(object):
                 data=da.values,
                 latitudes=ds['lat'].values,
                 longitudes=ds['lon'].values,
-                productionDates=ds['production_datetime'].values,
+                production_datetime=ds['production_datetime'].values,
                 leadtimes=ds['leadtime'].values,
                 units=units,
                 variable=variable,
@@ -804,7 +807,7 @@ class MeteoRaster(object):
         
         mr = MeteoRaster(data=self.data.copy(),
                          latitudes=self.latitudes.copy(), longitudes=self.longitudes.copy(),
-                         productionDates=self.productionDates.copy(), leadtimes=self.leadtimes.copy(),
+                         production_datetime=self.production_datetime.copy(), leadtimes=self.leadtimes.copy(),
                          da_attrs=self.da_attrs, ds_attrs=self.ds_attrs,
                          )
         return mr
@@ -903,7 +906,7 @@ class MeteoRaster(object):
         agg[~val] = np.NaN 
         
         tmp = np.reshape(agg, (agg.shape[0], np.prod(agg.shape[1:])), order='F')
-        agg = pd.DataFrame(tmp, index=self.productionDates.ravel())
+        agg = pd.DataFrame(tmp, index=self.production_datetime.ravel())
         agg.columns = columns
         agg.index.name = 'Production date'
 
@@ -922,11 +925,11 @@ class MeteoRaster(object):
         self._diag('Executing spatial aggregation...', self.verbose)
 
         if not resampling is None:
-            resampled_idx = pd.DataFrame(self.productionDates, self.productionDates).resample(resampling).indices
+            resampled_idx = pd.DataFrame(self.production_datetime, self.production_datetime).resample(resampling).indices
             time_idx = list(resampled_idx.keys())
             time_groups = [i for _, i in resampled_idx.items()]
         else:
-            time_idx = self.productionDates
+            time_idx = self.production_datetime
             time_groups = [[i] for i, _ in enumerate(time_idx)]
                     
         #Creation of matrices for calculation
@@ -961,6 +964,7 @@ class MeteoRaster(object):
             val = np.tile(np.expand_dims(val, (0, -1)), [1]*(val.ndim + 1) + [len(quantiles)])
             
             # Calculate the quantiles
+            raise(Exception('This must be reviewed.'))
             tmp = np.rollaxis(np.nanquantile(np.expand_dims(data_unfolded, 0), quantiles, axis=(1, 2, -3, -2)), 0, len(quantiles)) #[time, lead, ensemble, zones, quantiles]
             tmp[~val] = np.nan 
             agg_.append(tmp)
@@ -1120,7 +1124,7 @@ class MeteoRaster(object):
                 raise(ex)
 
         # Define columns (drops redundant levels (except zone))
-        columns = pd.MultiIndex.from_product((ids, self.leadtimes, 1+np.arange(self.data.shape[self.ENSEMBLEMEMBERpOSITION])), names=('Zone', 'Leadtime', 'Ensemble member'))
+        columns = pd.MultiIndex.from_product((ids, self.leadtimes, 1+np.arange(self.data.shape[self.ENSEMBLEMEMBERpOSITION])), names=('zone', 'leadtime', 'ensemble_member'))
         drop = []
         for i0, (n0, l0) in enumerate(zip(columns.names, list(columns.levels))):
             if l0.shape[0]==1 and n0!='Zone':
@@ -1177,6 +1181,26 @@ class MeteoRaster(object):
     def _diag(message, show=True):
         if show:
             print(message)
+
+    def resampleTimeStep(self, *args, **kwargs):
+        warnings.warn('resampleTimeStep() is deprecated and will be removed in a future release; call resample_timestep() directly instead.', DeprecationWarning, stacklevel=2)
+        self.resample_timestep(*args, **kwargs)
+
+    def getQuantilesFromKML(self, *args, **kwargs):
+        warnings.warn('getQuantilesFromKML() is deprecated and will be removed in a future release; call get_quantiles_from_KML() directly instead.', DeprecationWarning, stacklevel=2)
+        return self.get_quantiles_from_KML(*args, **kwargs)
+    
+    def getDataFromLatLon(self, *args, **kwargs):
+        warnings.warn('getDataFromLatLon() is deprecated and will be removed in a future release; call get_values_from_latlon() directly instead.', DeprecationWarning, stacklevel=2)
+        return self.get_values_from_latlon(*args, **kwargs)
+    
+    def getCropped(self, *args, **kwargs):
+        warnings.warn('getCropped() is deprecated and will be removed in a future release; call get_cropped() directly instead.', DeprecationWarning, stacklevel=2)
+        return self.get_cropped(*args, **kwargs)
+
+    def getValuesFromKML(self, *args, **kwargs):
+        warnings.warn('getValuesFromKML() is deprecated and will be removed in a future release; call get_values_from_KML() directly instead.', DeprecationWarning, stacklevel=2)
+        return self.get_values_from_KML(*args, **kwargs)
 
 if __name__=='__main__':
     
