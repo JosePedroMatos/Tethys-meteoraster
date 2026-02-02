@@ -418,7 +418,12 @@ class MeteoRaster(object):
 
             # place new data (overwrite on overlap)
             idx_new = np.searchsorted(all_dates, newproduction_datetime)
-            merged[idx_new, ...] = newData.astype(target_dtype, copy=False)
+            newData_cast = newData.astype(target_dtype, copy=False)
+            existing = merged[idx_new, ...]
+            nan_mask = np.isnan(existing)
+            if nan_mask.any():
+                existing[nan_mask] = newData_cast[nan_mask]
+                merged[idx_new, ...] = existing
 
             self.production_datetime = all_dates
             self.data = merged
