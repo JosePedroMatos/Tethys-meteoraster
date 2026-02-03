@@ -1175,13 +1175,17 @@ class MeteoRaster(object):
             with open(kml, 'r') as file_in:
                 with open(tmpKML, 'w') as file_out:
                     for line in file_in:
-                        if line.strip().startswith('<kml'):
-                            if line.strip() != '<kml>':
+                        stripped = line.strip()
+                        if stripped.startswith('<kml'):
+                            if stripped != '<kml>':
                                 line = '<kml>\n'
+                        if stripped.startswith('<atom:link'):
+                            continue
                         __ = file_out.write(line)
             os.remove(kml)
             os.rename(tmpKML, kml)
 
+            
     @staticmethod
     def _diag(message, show=True):
         if show:
