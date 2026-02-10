@@ -23,13 +23,15 @@ class MeteoRaster(object):
     '''
     Custom class to handle meteorological raster files, including ensembles and forecasts
     
-    v2.01:
+    v2.1:
         Updated to VSCode
         Updated to drop pickle and use cross-platfrom alternatives instead
 
         Added testing
         Removed support for reading multiple data formats
-        A "latest" version is compiled and published.
+        A "latest" version is compiled and published
+
+        Untested support for pd.DateOffset
     '''
     
     VERSION = '2.01'
@@ -46,8 +48,8 @@ class MeteoRaster(object):
         production dates: 1-D numpy array
         ensemble members: 1-D numpy array
         leadtimes: 1-D numpy array
-        latitudes: 1-D numpy array
-        longitudes: 1-D numpy array
+        latitudes: 1-D numpy array (center)
+        longitudes: 1-D numpy array (center)
         
         alternatively, data can be a dict with the previous fields
         '''
@@ -340,7 +342,10 @@ class MeteoRaster(object):
         
         newData = meteoRaster.data
         newproduction_datetime = meteoRaster.production_datetime
-        newLeadtimes = meteoRaster.leadtimes.astype(self.leadtimes.dtype)
+        try:
+            newLeadtimes = meteoRaster.leadtimes.astype(self.leadtimes.dtype)
+        except Exception as ex:
+            newLeadtimes = meteoRaster.leadtimes
         newLatitudes = meteoRaster.latitudes
         newLongitudes = meteoRaster.longitudes
         
@@ -734,17 +739,28 @@ class MeteoRaster(object):
         :rtype: DataArray
         '''
         
+        leadtimes = self.leadtimes
+        leadtime_format = 'pd.Timedelta'
+        if isinstance(leadtimes[-1], pd.DateOffset):
+            if hasattr(leadtimes[-1], 'months'):
+                leadtimes = [i.months for i in leadtimes]
+                leadtime_format = 'pd.DateOffset:months'
+            else:
+                leadtimes = [i.years for i in leadtimes]
+                leadtime_format = 'pd.DateOffset:years'
+
         data_array = xr.DataArray(
             data=self.data,
             dims=['production_datetime', 'ensemble_member', 'leadtime', 'y', 'x'],
             coords={
                 'production_datetime': self.production_datetime,          # pd.Timestamp
                 'ensemble_member': np.arange(self.data.shape[1], dtype=int),            # int
-                'leadtime': self.leadtimes,                         # pd.Timedelta / DateOffset
+                'leadtime': leadtimes,                         # pd.Timedelta / DateOffset
                 'lat': (['y', 'x'], self.latitudes),                   # float
                 'lon': (['y', 'x'], self.longitudes),                  # float
                 'y': np.arange(self.data.shape[-2], dtype=int),
                 'x': np.arange(self.data.shape[-1], dtype=int),
+                'leadtime_format': leadtime_format,
             },
             name=self.variable,
             attrs={'units': self.units, 'variable': self.variable, 'saved': f'Saved by {self.__class__.__name__} v{self.VERSION} @ {pd.Timestamp.now().isoformat()}'},
@@ -781,12 +797,18 @@ class MeteoRaster(object):
             da_attrs = ds.attrs
             ds_attrs = ds.attrs
 
+            leadtimes = ds['leadtime'].values
+            if hasattr(ds['leadtime'], 'leadtime_format'):
+                leadtime_format = str(ds['leadtime'].leadtime_format.values)
+                if leadtime_format.split(':')[0]=='pd.DateOffset':
+                    leadtimes = pd.Index([pd.DateOffset(**{leadtime_format.split(':')[1]: lt}) for lt in leadtimes])
+
             meteo = cls(
                 data=da.values,
                 latitudes=ds['lat'].values,
                 longitudes=ds['lon'].values,
                 production_datetime=ds['production_datetime'].values,
-                leadtimes=ds['leadtime'].values,
+                leadtimes=leadtimes,
                 units=units,
                 variable=variable,
                 da_attrs=da_attrs,
@@ -1175,17 +1197,13 @@ class MeteoRaster(object):
             with open(kml, 'r') as file_in:
                 with open(tmpKML, 'w') as file_out:
                     for line in file_in:
-                        stripped = line.strip()
-                        if stripped.startswith('<kml'):
-                            if stripped != '<kml>':
+                        if line.strip().startswith('<kml'):
+                            if line.strip() != '<kml>':
                                 line = '<kml>\n'
-                        if stripped.startswith('<atom:link'):
-                            continue
                         __ = file_out.write(line)
             os.remove(kml)
             os.rename(tmpKML, kml)
 
-            
     @staticmethod
     def _diag(message, show=True):
         if show:
